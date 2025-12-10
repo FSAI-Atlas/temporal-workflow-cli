@@ -2,13 +2,18 @@
 
 import { Command } from "commander";
 import { deploy, list, rollback, deleteWorkflow, info, login, logout, whoami } from "./commands";
+import { readFileSync } from "fs";
+import { join } from "path";
+
+// Read version from package.json
+const packageJson = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8"));
 
 const program = new Command();
 
 program
   .name("workflow-cli")
   .description("CLI for deploying Temporal workflows to MinIO storage")
-  .version("1.0.0");
+  .version(packageJson.version);
 
 // Login command
 program
