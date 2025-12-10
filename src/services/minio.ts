@@ -1,15 +1,11 @@
 import * as Minio from "minio";
-import * as fs from "fs";
-import * as path from "path";
 import { getConfig } from "../config";
 import { WorkflowMetadata } from "../types";
-import { requireAuth } from "./auth";
+import { requireAuth, getCurrentUser } from "./auth";
 
 let minioClient: Minio.Client | null = null;
 
 function getClient(): Minio.Client {
-  requireAuth();
-
   if (!minioClient) {
     const config = getConfig();
     minioClient = new Minio.Client({
@@ -23,8 +19,14 @@ function getClient(): Minio.Client {
   return minioClient;
 }
 
+// Ensure authenticated before making requests
+async function ensureAuth(): Promise<void> {
+  await requireAuth();
+}
+
 // Ensure the bucket exists
 export async function ensureBucket(): Promise<void> {
+  await ensureAuth();
   const client = getClient();
   const config = getConfig();
 
@@ -35,9 +37,10 @@ export async function ensureBucket(): Promise<void> {
   }
 }
 
-// Get deployer identifier
+// Get deployer identifier from authenticated user
 function getDeployer(): string {
-  return process.env.USER || process.env.USERNAME || "unknown";
+  const user = getCurrentUser();
+  return user?.email || process.env.USER || process.env.USERNAME || "unknown";
 }
 
 // Upload a workflow bundle to MinIO
@@ -47,6 +50,7 @@ export async function uploadWorkflow(
   bundlePath: string,
   metadata: WorkflowMetadata
 ): Promise<string> {
+  await ensureAuth();
   const client = getClient();
   const config = getConfig();
 
@@ -83,6 +87,7 @@ export async function uploadWorkflow(
 
 // List all workflows in the bucket
 export async function listWorkflows(): Promise<string[]> {
+  await ensureAuth();
   const client = getClient();
   const config = getConfig();
 
@@ -105,6 +110,7 @@ export async function listWorkflows(): Promise<string[]> {
 
 // List versions of a specific workflow
 export async function listVersions(workflowName: string): Promise<string[]> {
+  await ensureAuth();
   const client = getClient();
   const config = getConfig();
 
@@ -128,6 +134,7 @@ export async function listVersions(workflowName: string): Promise<string[]> {
 
 // Get the latest version of a workflow
 export async function getLatestVersion(workflowName: string): Promise<string | null> {
+  await ensureAuth();
   const client = getClient();
   const config = getConfig();
 
@@ -148,6 +155,7 @@ export async function getLatestVersion(workflowName: string): Promise<string | n
 
 // Get workflow metadata
 export async function getMetadata(workflowName: string, version: string): Promise<WorkflowMetadata | null> {
+  await ensureAuth();
   const client = getClient();
   const config = getConfig();
 
@@ -168,6 +176,7 @@ export async function getMetadata(workflowName: string, version: string): Promis
 
 // Delete a specific version
 export async function deleteVersion(workflowName: string, version: string): Promise<void> {
+  await ensureAuth();
   const client = getClient();
   const config = getConfig();
 
@@ -193,6 +202,7 @@ export async function deleteVersion(workflowName: string, version: string): Prom
 
 // Set a specific version as latest
 export async function setLatestVersion(workflowName: string, version: string): Promise<void> {
+  await ensureAuth();
   const client = getClient();
   const config = getConfig();
 
