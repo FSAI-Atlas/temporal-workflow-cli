@@ -68,10 +68,12 @@ export interface CLIConfig {
 export interface DeployOptions {
   version?: string;
   force?: boolean;
+  tenant?: string; // For master admin to deploy to specific tenant
 }
 
 // List options
 export interface ListOptions {
   namespace?: string;
   showVersions?: boolean;
+  tenant?: string; // For master admin to list specific tenant's workflows
 }

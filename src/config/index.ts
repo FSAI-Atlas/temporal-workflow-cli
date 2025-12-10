@@ -1,26 +1,30 @@
 import { config } from "dotenv";
 import { CLIConfig } from "../types";
+import { getMinioConfig, getApiUrl } from "../commands/config";
 
+// Load .env file if it exists (for local development)
 config();
 
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`Missing required environment variable: ${name}`);
-  }
-  return value;
-}
-
 export function getConfig(): CLIConfig {
+  const minioConfig = getMinioConfig();
+
+  if (!minioConfig) {
+    console.error("\nError: MinIO not configured.");
+    console.error("Run 'workflow-cli config setup' to configure MinIO settings.");
+    console.error("Or set environment variables: MINIO_ACCESS_KEY, MINIO_SECRET_KEY\n");
+    process.exit(1);
+  }
+
   return {
     minio: {
-      endPoint: process.env.MINIO_ENDPOINT || "localhost",
-      port: parseInt(process.env.MINIO_PORT || "9000", 10),
-      useSSL: process.env.MINIO_USE_SSL === "true",
-      accessKey: requireEnv("MINIO_ACCESS_KEY"),
-      secretKey: requireEnv("MINIO_SECRET_KEY"),
-      bucket: process.env.MINIO_BUCKET || "temporal-workflows",
+      endPoint: minioConfig.endpoint,
+      port: minioConfig.port,
+      useSSL: minioConfig.useSSL,
+      accessKey: minioConfig.accessKey,
+      secretKey: minioConfig.secretKey,
+      bucket: minioConfig.bucket,
     },
   };
 }
 
+export { getApiUrl };

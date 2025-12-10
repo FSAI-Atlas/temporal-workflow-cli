@@ -9,17 +9,32 @@ const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
 export const API_KEY_ENV_VAR = "WORKFLOW_CLI_API_KEY";
 export const SECRET_KEY_ENV_VAR = "WORKFLOW_CLI_SECRET_KEY";
 
-// Default API URL (can be overridden by env var)
-const API_URL = process.env.WORKFLOW_CLI_API_URL || "http://localhost:3001";
+// Get API URL from config
+function getApiUrl(): string {
+  // Import dynamically to avoid circular dependency
+  const config = require("../commands/config");
+  return config.getApiUrl();
+}
+
+interface TenantInfo {
+  id: string;
+  tenantId: string;
+  name: string;
+}
+
+interface UserInfo {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+}
 
 interface AuthConfig {
   token: string;
   apiKey: string;
-  user: {
-    id: string;
-    email: string;
-    name: string;
-  };
+  user: UserInfo;
+  tenant: TenantInfo | null;
+  isMaster: boolean;
   savedAt: string;
 }
 
@@ -28,11 +43,9 @@ interface LoginResponse {
   message: string;
   data?: {
     token: string;
-    user: {
-      id: string;
-      email: string;
-      name: string;
-    };
+    user: UserInfo;
+    tenant: TenantInfo | null;
+    isMaster?: boolean;
   };
 }
 
@@ -40,9 +53,13 @@ interface VerifyResponse {
   success: boolean;
   data?: {
     userId: string;
+    tenantId: string | null;
     email: string;
+    role: string;
     type: string;
+    tenant: TenantInfo | null;
     valid: boolean;
+    isMaster?: boolean;
   };
 }
 
@@ -56,10 +73,12 @@ function ensureConfigDir(): void {
 export async function loginWithApiKey(apiKey: string, secretKey: string): Promise<{
   success: boolean;
   message: string;
-  user?: { id: string; email: string; name: string };
+  user?: UserInfo;
+  tenant?: TenantInfo | null;
+  isMaster?: boolean;
 }> {
   try {
-    const response = await fetch(`${API_URL}/cli/login`, {
+    const response = await fetch(`${getApiUrl()}/cli/login`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -73,13 +92,17 @@ export async function loginWithApiKey(apiKey: string, secretKey: string): Promis
       return { success: false, message: data.message || "Login failed" };
     }
 
+    const isMaster = data.data.isMaster || data.data.user.role === "master";
+
     // Save auth config
-    saveAuth(data.data.token, apiKey, data.data.user);
+    saveAuth(data.data.token, apiKey, data.data.user, data.data.tenant, isMaster);
 
     return {
       success: true,
       message: "Login successful",
       user: data.data.user,
+      tenant: data.data.tenant,
+      isMaster,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Connection failed";
@@ -91,14 +114,29 @@ export async function loginWithApiKey(apiKey: string, secretKey: string): Promis
 export function saveAuth(
   token: string,
   apiKey: string,
-  user: { id: string; email: string; name: string }
+  user: UserInfo,
+  tenant: TenantInfo | null,
+  isMaster: boolean = false
 ): void {
   ensureConfigDir();
 
-  const config: AuthConfig = {
+  // Read existing config to preserve other settings
+  let existingConfig: Record<string, unknown> = {};
+  try {
+    if (fs.existsSync(CONFIG_FILE)) {
+      existingConfig = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf-8"));
+    }
+  } catch {
+    // ignore
+  }
+
+  const config = {
+    ...existingConfig,
     token,
     apiKey,
     user,
+    tenant,
+    isMaster,
     savedAt: new Date().toISOString(),
   };
 
@@ -150,7 +188,7 @@ export async function isAuthenticated(): Promise<boolean> {
 // Verify token with the API
 export async function verifyToken(token: string): Promise<boolean> {
   try {
-    const response = await fetch(`${API_URL}/cli/verify`, {
+    const response = await fetch(`${getApiUrl()}/cli/verify`, {
       method: "GET",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -158,6 +196,17 @@ export async function verifyToken(token: string): Promise<boolean> {
     });
 
     const data = (await response.json()) as VerifyResponse;
+
+    // Update tenant info if verification successful
+    if (data.success && data.data?.valid) {
+      const config = getAuthConfig();
+      if (config) {
+        const isMaster = data.data.isMaster || data.data.role === "master";
+        // Update tenant info in config
+        saveAuth(config.token, config.apiKey, config.user, data.data.tenant, isMaster);
+      }
+    }
+
     return data.success && data.data?.valid === true;
   } catch {
     return false;
@@ -182,15 +231,40 @@ export function getAuthSource(): "env" | "config" | null {
 }
 
 // Get current user info
-export function getCurrentUser(): { id: string; email: string; name: string } | null {
+export function getCurrentUser(): UserInfo | null {
   const config = getAuthConfig();
   return config?.user || null;
+}
+
+// Get current tenant info
+export function getCurrentTenant(): TenantInfo | null {
+  const config = getAuthConfig();
+  return config?.tenant || null;
+}
+
+// Check if current user is master admin
+export function isMasterAdmin(): boolean {
+  const config = getAuthConfig();
+  return config?.isMaster || config?.user?.role === "master" || false;
 }
 
 // Clear authentication
 export function clearAuth(): void {
   if (fs.existsSync(CONFIG_FILE)) {
-    fs.unlinkSync(CONFIG_FILE);
+    // Preserve other config settings, just remove auth
+    try {
+      const content = fs.readFileSync(CONFIG_FILE, "utf-8");
+      const config = JSON.parse(content);
+      delete config.token;
+      delete config.apiKey;
+      delete config.user;
+      delete config.tenant;
+      delete config.isMaster;
+      delete config.savedAt;
+      fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), { mode: 0o600 });
+    } catch {
+      fs.unlinkSync(CONFIG_FILE);
+    }
   }
 }
 
@@ -211,4 +285,16 @@ export function getAuthHeader(): { Authorization: string } | Record<string, neve
     return { Authorization: `Bearer ${token}` };
   }
   return {};
+}
+
+// Get effective tenant ID (considering master admin and --tenant flag)
+export function getEffectiveTenantId(tenantOverride?: string): string | null {
+  // If override provided and user is master, use it
+  if (tenantOverride && isMasterAdmin()) {
+    return tenantOverride;
+  }
+
+  // Otherwise use current tenant
+  const tenant = getCurrentTenant();
+  return tenant?.tenantId || null;
 }

@@ -6,6 +6,8 @@ import {
   clearAuth,
   getAuthSource,
   getCurrentUser,
+  getCurrentTenant,
+  isMasterAdmin,
   API_KEY_ENV_VAR,
   SECRET_KEY_ENV_VAR,
 } from "../services/auth";
@@ -59,8 +61,13 @@ export async function login(): Promise<void> {
   if (process.env[API_KEY_ENV_VAR] && process.env[SECRET_KEY_ENV_VAR]) {
     const authenticated = await isAuthenticated();
     if (authenticated) {
+      const tenant = getCurrentTenant();
       console.log(chalk.green(`Authenticated via environment variables.`));
-      console.log(chalk.gray(`(${API_KEY_ENV_VAR} and ${SECRET_KEY_ENV_VAR})\n`));
+      console.log(chalk.gray(`(${API_KEY_ENV_VAR} and ${SECRET_KEY_ENV_VAR})`));
+      if (tenant) {
+        console.log(chalk.gray(`Workspace: ${tenant.name}`));
+      }
+      console.log("");
       return;
     }
   }
@@ -69,9 +76,13 @@ export async function login(): Promise<void> {
   const authenticated = await isAuthenticated();
   if (authenticated) {
     const user = getCurrentUser();
+    const tenant = getCurrentTenant();
     console.log(chalk.yellow("You are already logged in."));
     if (user) {
       console.log(chalk.gray(`User: ${user.email}`));
+    }
+    if (tenant) {
+      console.log(chalk.gray(`Workspace: ${tenant.name}`));
     }
     console.log("Use 'workflow-cli logout' to clear your credentials.\n");
     return;
@@ -109,6 +120,11 @@ export async function login(): Promise<void> {
     if (result.user) {
       console.log(chalk.gray(`Logged in as: ${result.user.email}`));
     }
+    if (result.isMaster) {
+      console.log(chalk.yellow(`Role: Master Admin (access to all tenants)`));
+    } else if (result.tenant) {
+      console.log(chalk.gray(`Workspace: ${result.tenant.name}`));
+    }
     console.log(chalk.gray("Credentials saved to ~/.workflow-cli/config.json\n"));
   } finally {
     rl.close();
@@ -143,6 +159,8 @@ export async function whoami(): Promise<void> {
   }
 
   const user = getCurrentUser();
+  const tenant = getCurrentTenant();
+  const isMaster = isMasterAdmin();
 
   console.log(chalk.green("Authenticated"));
   console.log(`Source: ${chalk.gray(source === "env" ? "environment variables" : "config file")}`);
@@ -150,5 +168,14 @@ export async function whoami(): Promise<void> {
   if (user) {
     console.log(`User: ${chalk.cyan(user.email)}`);
     console.log(`Name: ${chalk.gray(user.name)}`);
+    console.log(`Role: ${chalk.gray(user.role)}`);
+  }
+
+  if (isMaster) {
+    console.log(chalk.yellow(`\n⚡ Master Admin - Access to all tenants`));
+    console.log(chalk.gray(`Use --tenant <tenant_id> flag to specify target tenant for operations`));
+  } else if (tenant) {
+    console.log(`Workspace: ${chalk.cyan(tenant.name)}`);
+    console.log(`Tenant ID: ${chalk.gray(tenant.tenantId)}`);
   }
 }
