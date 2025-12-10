@@ -3,10 +3,13 @@ import * as fs from "fs";
 import * as path from "path";
 import { getConfig } from "../config";
 import { WorkflowMetadata } from "../types";
+import { requireAuth } from "./auth";
 
 let minioClient: Minio.Client | null = null;
 
 function getClient(): Minio.Client {
+  requireAuth();
+
   if (!minioClient) {
     const config = getConfig();
     minioClient = new Minio.Client({
@@ -32,6 +35,11 @@ export async function ensureBucket(): Promise<void> {
   }
 }
 
+// Get deployer identifier
+function getDeployer(): string {
+  return process.env.USER || process.env.USERNAME || "unknown";
+}
+
 // Upload a workflow bundle to MinIO
 export async function uploadWorkflow(
   workflowName: string,
@@ -44,6 +52,12 @@ export async function uploadWorkflow(
 
   await ensureBucket();
 
+  // Add deployer info to metadata
+  const enrichedMetadata = {
+    ...metadata,
+    deployedBy: getDeployer(),
+  };
+
   // Upload the bundle
   const bundleKey = `${workflowName}/${version}/bundle.zip`;
   await client.fPutObject(config.minio.bucket, bundleKey, bundlePath, {
@@ -52,7 +66,7 @@ export async function uploadWorkflow(
 
   // Upload the metadata
   const metadataKey = `${workflowName}/${version}/metadata.json`;
-  const metadataBuffer = Buffer.from(JSON.stringify(metadata, null, 2));
+  const metadataBuffer = Buffer.from(JSON.stringify(enrichedMetadata, null, 2));
   await client.putObject(config.minio.bucket, metadataKey, metadataBuffer, metadataBuffer.length, {
     "Content-Type": "application/json",
   });
@@ -80,7 +94,6 @@ export async function listWorkflows(): Promise<string[]> {
   return new Promise((resolve, reject) => {
     stream.on("data", (obj) => {
       if (obj.prefix) {
-        // Remove trailing slash from prefix
         const name = obj.prefix.replace(/\/$/, "");
         workflows.add(name);
       }
@@ -103,7 +116,6 @@ export async function listVersions(workflowName: string): Promise<string[]> {
     stream.on("data", (obj) => {
       if (obj.prefix) {
         const version = obj.prefix.replace(prefix, "").replace(/\/$/, "");
-        // Skip 'latest' pointer
         if (version !== "latest" && version) {
           versions.push(version);
         }
@@ -190,4 +202,3 @@ export async function setLatestVersion(workflowName: string, version: string): P
     "Content-Type": "text/plain",
   });
 }
-

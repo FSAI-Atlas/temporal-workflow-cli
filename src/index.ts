@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { Command } from "commander";
-import { deploy, list, rollback, deleteWorkflow, info } from "./commands";
+import { deploy, list, rollback, deleteWorkflow, info, login, logout, whoami } from "./commands";
 
 const program = new Command();
 
@@ -9,6 +9,30 @@ program
   .name("workflow-cli")
   .description("CLI for deploying Temporal workflows to MinIO storage")
   .version("1.0.0");
+
+// Login command
+program
+  .command("login")
+  .description("Authenticate with your workflow deployment token")
+  .action(async () => {
+    await login();
+  });
+
+// Logout command
+program
+  .command("logout")
+  .description("Clear stored authentication credentials")
+  .action(async () => {
+    await logout();
+  });
+
+// Whoami command
+program
+  .command("whoami")
+  .description("Show current authentication status")
+  .action(async () => {
+    await whoami();
+  });
 
 // Deploy command
 program
@@ -70,4 +94,3 @@ program
   });
 
 program.parse();
-

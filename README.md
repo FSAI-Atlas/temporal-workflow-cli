@@ -2,6 +2,24 @@
 
 A command-line interface for deploying Temporal workflows to MinIO storage. This CLI works in conjunction with `temporal-worker` to enable dynamic workflow deployment without server restarts.
 
+## Authentication
+
+Before using the CLI, you must authenticate with your deployment token:
+
+```bash
+# Login with your token
+workflow-cli login
+# Enter your authentication token: ********************************
+
+# Check authentication status
+workflow-cli whoami
+
+# Logout
+workflow-cli logout
+```
+
+The token is stored securely in `~/.workflow-cli/config.json` with restricted permissions.
+
 ## Architecture
 
 ```
@@ -48,6 +66,19 @@ MINIO_BUCKET=temporal-workflows
 ```
 
 ## Usage
+
+### Authentication
+
+```bash
+# Login (required before other commands)
+workflow-cli login
+
+# Check status
+workflow-cli whoami
+
+# Logout
+workflow-cli logout
+```
 
 ### Deploy a Workflow
 
